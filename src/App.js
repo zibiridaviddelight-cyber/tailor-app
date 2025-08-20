@@ -1,14 +1,10 @@
-// ==========================================
-// FILE: src/App.js (FIXED)
-// ==========================================
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-// CHANGED: Added new auth functions and removed signInAnonymously
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, deleteDoc, onSnapshot, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { getStorage } from "firebase/storage";
 
-// NEW: Import Login component
 import Login from './components/Login';
 import Header from './components/Header';
 import Controls from './components/Controls';
@@ -31,9 +27,9 @@ const App = () => {
   };
 
   const [db, setDb] = useState(null);
-  const [auth, setAuth] = useState(null); // NEW: State for auth service
+  const [auth, setAuth] = useState(null);
   const [storage, setStorage] = useState(null);
-  const [user, setUser] = useState(null); // CHANGED: Renamed from userId to user for clarity
+  const [user, setUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   
   const [customers, setCustomers] = useState([]);
@@ -55,6 +51,20 @@ const App = () => {
   const [modal, setModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, showCancel: false });
 
   const appId = 'default-app-id';
+
+  // CHANGED: Moved useMemo hook to the top level before any conditional returns.
+  const filteredItems = useMemo(() => {
+    if (currentView === 'customers') return customers.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone?.includes(searchQuery));
+    if (currentView === 'expenses') return expenses.filter(e => e.description?.toLowerCase().includes(searchQuery.toLowerCase()));
+    if (currentView === 'orders') {
+        return orders.filter(order => {
+            const textMatch = (order.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || order.item?.toLowerCase().includes(searchQuery.toLowerCase()));
+            const statusMatch = orderStatusFilter === 'All' ? true : order.status === orderStatusFilter;
+            return textMatch && statusMatch;
+        });
+    }
+    return [];
+  }, [currentView, customers, orders, expenses, searchQuery, orderStatusFilter]);
 
   const showModal = (title, message, onConfirm, showCancel = false) => setModal({ isOpen: true, title, message, onConfirm, showCancel });
   const closeModalAlert = () => setModal({ ...modal, isOpen: false });
@@ -83,11 +93,10 @@ const App = () => {
       
       setDb(firestoreDb);
       setStorage(firebaseStorage);
-      setAuth(firebaseAuth); // NEW: Set auth service
+      setAuth(firebaseAuth);
 
-      // CHANGED: Updated auth logic to check for a logged-in user
       const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
-        setUser(user); // Set the user object, or null if not logged in
+        setUser(user);
         setIsAuthReady(true);
       });
       return () => unsubscribe();
@@ -97,7 +106,6 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    // CHANGED: Now depends on `user` object instead of `userId`
     if (db && user && isAuthReady) {
       const userId = user.uid;
       const custUnsub = onSnapshot(collection(db, 'artifacts', appId, 'users', userId, 'customers'), (snapshot) => {
@@ -118,7 +126,6 @@ const App = () => {
         expenseUnsub();
       };
     } else {
-      // Clear data when user logs out
       setCustomers([]);
       setOrders([]);
       setExpenses([]);
@@ -129,12 +136,10 @@ const App = () => {
     signOut(auth).catch(error => console.error("Error signing out:", error));
   };
 
-  // If auth is ready but there's no user, show the login page
   if (isAuthReady && !user) {
     return <Login auth={auth} />;
   }
 
-  // If auth is not ready yet, show a loading indicator
   if (!isAuthReady) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
@@ -197,19 +202,6 @@ const App = () => {
     }, true);
   };
 
-  const filteredItems = useMemo(() => {
-    if (currentView === 'customers') return customers.filter(c => c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone?.includes(searchQuery));
-    if (currentView === 'expenses') return expenses.filter(e => e.description?.toLowerCase().includes(searchQuery.toLowerCase()));
-    if (currentView === 'orders') {
-        return orders.filter(order => {
-            const textMatch = (order.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) || order.item?.toLowerCase().includes(searchQuery.toLowerCase()));
-            const statusMatch = orderStatusFilter === 'All' ? true : order.status === orderStatusFilter;
-            return textMatch && statusMatch;
-        });
-    }
-    return [];
-  }, [currentView, customers, orders, expenses, searchQuery, orderStatusFilter]);
-
   const renderCurrentView = () => {
     switch (currentView) {
       case 'dashboard':
@@ -260,3 +252,4 @@ const App = () => {
 };
 
 export default App;
+
