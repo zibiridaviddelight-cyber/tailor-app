@@ -5,7 +5,6 @@ import { doc, addDoc, updateDoc, collection, serverTimestamp } from 'firebase/fi
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { v4 as uuidv4 } from 'uuid';
 
-// CHANGED: Moved initialFormState outside the component to make it a stable reference
 const initialFormState = {
   customerId: '', customerName: '', item: '', status: 'In Progress', dueDate: '',
   totalCost: '', amountPaid: '', balanceDue: '0.00', photos: []
@@ -16,10 +15,10 @@ const OrderModal = ({ isOpen, onClose, order, customers, db, storage, userId, ap
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  // CHANGED: Added initialFormState to the dependency array
+  // CHANGED: Removed unnecessary dependency to fix build error
   useEffect(() => {
     setOrderForm(order && order.id ? { ...initialFormState, ...order } : initialFormState);
-  }, [order, initialFormState]);
+  }, [order]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];

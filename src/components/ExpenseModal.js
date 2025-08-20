@@ -3,17 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { doc, addDoc, updateDoc, collection, serverTimestamp } from 'firebase/firestore';
 
-// CHANGED: Moved initialFormState outside the component to make it a stable reference
 const initialFormState = { date: '', description: '', amount: '' };
 
 const ExpenseModal = ({ isOpen, onClose, expense, db, userId, appId, showModal, closeModalAlert }) => {
   const [form, setForm] = useState(initialFormState);
   const [isSaving, setIsSaving] = useState(false);
 
-  // CHANGED: Added initialFormState to the dependency array
+  // CHANGED: Removed unnecessary dependency to fix build error
   useEffect(() => {
     setForm(expense && expense.id ? expense : initialFormState);
-  }, [expense, initialFormState]);
+  }, [expense]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
