@@ -1,11 +1,15 @@
-
+// ==========================================
+// FILE: src/App.js (FIXED)
+// ==========================================
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-// CHANGED: Removed unused imports to fix build error
+// CHANGED: Added new auth functions and removed signInAnonymously
+import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, deleteDoc, onSnapshot, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { getStorage } from "firebase/storage";
 
+// NEW: Import Login component
+import Login from './components/Login';
 import Header from './components/Header';
 import Controls from './components/Controls';
 import CustomerTable from './components/CustomerTable';
@@ -27,8 +31,9 @@ const App = () => {
   };
 
   const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null); // NEW: State for auth service
   const [storage, setStorage] = useState(null);
-  const [userId, setUserId] = useState(null);
+  const [user, setUser] = useState(null); // CHANGED: Renamed from userId to user for clarity
   const [isAuthReady, setIsAuthReady] = useState(false);
   
   const [customers, setCustomers] = useState([]);
@@ -78,14 +83,11 @@ const App = () => {
       
       setDb(firestoreDb);
       setStorage(firebaseStorage);
+      setAuth(firebaseAuth); // NEW: Set auth service
 
-      const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
-        if (user) {
-          setUserId(user.uid);
-        } else {
-          const anonymousUser = await signInAnonymously(firebaseAuth);
-          setUserId(anonymousUser.user.uid);
-        }
+      // CHANGED: Updated auth logic to check for a logged-in user
+      const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+        setUser(user); // Set the user object, or null if not logged in
         setIsAuthReady(true);
       });
       return () => unsubscribe();
@@ -95,7 +97,9 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (db && userId && isAuthReady) {
+    // CHANGED: Now depends on `user` object instead of `userId`
+    if (db && user && isAuthReady) {
+      const userId = user.uid;
       const custUnsub = onSnapshot(collection(db, 'artifacts', appId, 'users', userId, 'customers'), (snapshot) => {
         setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
@@ -113,8 +117,27 @@ const App = () => {
         orderUnsub();
         expenseUnsub();
       };
+    } else {
+      // Clear data when user logs out
+      setCustomers([]);
+      setOrders([]);
+      setExpenses([]);
     }
-  }, [db, userId, isAuthReady, appId]);
+  }, [db, user, isAuthReady, appId]);
+
+  const handleLogout = () => {
+    signOut(auth).catch(error => console.error("Error signing out:", error));
+  };
+
+  // If auth is ready but there's no user, show the login page
+  if (isAuthReady && !user) {
+    return <Login auth={auth} />;
+  }
+
+  // If auth is not ready yet, show a loading indicator
+  if (!isAuthReady) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
 
   const openNewCustomerModal = () => { setEditingCustomer({ measurements: defaultMeasurements }); setIsCustomerModalOpen(true); };
   const openEditCustomerModal = (customer) => { setEditingCustomer(customer); setIsCustomerModalOpen(true); };
@@ -133,13 +156,13 @@ const App = () => {
       if (!db) return;
       try {
         const batch = writeBatch(db);
-        const notesCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'customers', id, 'notes');
+        const notesCollectionRef = collection(db, 'artifacts', appId, 'users', user.uid, 'customers', id, 'notes');
         const notesSnapshot = await getDocs(notesCollectionRef);
         notesSnapshot.docs.forEach(d => batch.delete(d.ref));
-        const ordersQuery = query(collection(db, 'artifacts', appId, 'users', userId, 'orders'), where("customerId", "==", id));
+        const ordersQuery = query(collection(db, 'artifacts', appId, 'users', user.uid, 'orders'), where("customerId", "==", id));
         const ordersSnapshot = await getDocs(ordersQuery);
         ordersSnapshot.docs.forEach(d => batch.delete(d.ref));
-        const customerDocRef = doc(db, 'artifacts', appId, 'users', userId, 'customers', id);
+        const customerDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'customers', id);
         batch.delete(customerDocRef);
         await batch.commit();
         closeModalAlert();
@@ -153,7 +176,7 @@ const App = () => {
   const deleteOrder = (id) => {
     showModal('Confirm Deletion', 'Are you sure you want to delete this order?', async () => {
       try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'orders', id));
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'orders', id));
         closeModalAlert();
       } catch (error) {
         console.error("Error deleting order:", error);
@@ -165,7 +188,7 @@ const App = () => {
   const deleteExpense = (id) => {
     showModal('Confirm Deletion', 'Are you sure you want to delete this expense?', async () => {
       try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'expenses', id));
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'expenses', id));
         closeModalAlert();
       } catch (error) {
         console.error("Error deleting expense:", error);
@@ -205,7 +228,7 @@ const App = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 font-sans p-4 md:p-8">
       {modal.isOpen && <CustomModal {...modal} onCancel={closeModalAlert} />}
-      <Header userId={userId} />
+      <Header user={user} onLogout={handleLogout} />
       <Controls
         currentView={currentView}
         setCurrentView={setCurrentView}
@@ -219,7 +242,7 @@ const App = () => {
         customers={customers}
         orders={orders}
         db={db}
-        userId={userId}
+        userId={user.uid}
         appId={appId}
         showModal={showModal}
         closeModalAlert={closeModalAlert}
@@ -229,9 +252,9 @@ const App = () => {
       
       {renderCurrentView()}
 
-      {isCustomerModalOpen && <CustomerModal isOpen={isCustomerModalOpen} onClose={closeCustomerModal} customer={editingCustomer} db={db} userId={userId} appId={appId} showModal={showModal} closeModalAlert={closeModalAlert} />}
-      {isOrderModalOpen && <OrderModal isOpen={isOrderModalOpen} onClose={closeOrderModal} order={editingOrder} customers={customers} db={db} storage={storage} userId={userId} appId={appId} showModal={showModal} closeModalAlert={closeModalAlert} />}
-      {isExpenseModalOpen && <ExpenseModal isOpen={isExpenseModalOpen} onClose={closeExpenseModal} expense={editingExpense} db={db} userId={userId} appId={appId} showModal={showModal} closeModalAlert={closeModalAlert} />}
+      {isCustomerModalOpen && <CustomerModal isOpen={isCustomerModalOpen} onClose={closeCustomerModal} customer={editingCustomer} db={db} userId={user.uid} appId={appId} showModal={showModal} closeModalAlert={closeModalAlert} />}
+      {isOrderModalOpen && <OrderModal isOpen={isOrderModalOpen} onClose={closeOrderModal} order={editingOrder} customers={customers} db={db} storage={storage} userId={user.uid} appId={appId} showModal={showModal} closeModalAlert={closeModalAlert} />}
+      {isExpenseModalOpen && <ExpenseModal isOpen={isExpenseModalOpen} onClose={closeExpenseModal} expense={editingExpense} db={db} userId={user.uid} appId={appId} showModal={showModal} closeModalAlert={closeModalAlert} />}
     </div>
   );
 };
