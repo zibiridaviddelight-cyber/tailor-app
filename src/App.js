@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { getStorage } from "firebase/storage"; // NEW: Import Firebase Storage
+// CHANGED: Removed unused imports to fix build error
+import { getFirestore, doc, deleteDoc, onSnapshot, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { getStorage } from "firebase/storage";
 
-// NEW: Import new components
 import Header from './components/Header';
 import Controls from './components/Controls';
 import CustomerTable from './components/CustomerTable';
@@ -27,28 +27,25 @@ const App = () => {
   };
 
   const [db, setDb] = useState(null);
-  const [storage, setStorage] = useState(null); // NEW: State for storage
+  const [storage, setStorage] = useState(null);
   const [userId, setUserId] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   
-  // Data states
   const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [expenses, setExpenses] = useState([]); // NEW: State for expenses
+  const [expenses, setExpenses] = useState([]);
 
-  // Modal states
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
-  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false); // NEW: State for expense modal
+  const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentView, setCurrentView] = useState('dashboard'); // CHANGED: Default view is now dashboard
+  const [currentView, setCurrentView] = useState('dashboard');
   const [orderStatusFilter, setOrderStatusFilter] = useState('All');
   
-  // Editing states
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
-  const [editingExpense, setEditingExpense] = useState(null); // NEW: State for editing expense
+  const [editingExpense, setEditingExpense] = useState(null);
 
   const [modal, setModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {}, showCancel: false });
 
@@ -76,11 +73,11 @@ const App = () => {
     try {
       const app = initializeApp(firebaseConfig);
       const firestoreDb = getFirestore(app);
-      const firebaseStorage = getStorage(app); // NEW: Initialize storage
+      const firebaseStorage = getStorage(app);
       const firebaseAuth = getAuth(app);
       
       setDb(firestoreDb);
-      setStorage(firebaseStorage); // NEW: Set storage state
+      setStorage(firebaseStorage);
 
       const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
         if (user) {
@@ -99,17 +96,14 @@ const App = () => {
 
   useEffect(() => {
     if (db && userId && isAuthReady) {
-      // Fetch Customers
       const custUnsub = onSnapshot(collection(db, 'artifacts', appId, 'users', userId, 'customers'), (snapshot) => {
         setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
 
-      // Fetch Orders
       const orderUnsub = onSnapshot(collection(db, 'artifacts', appId, 'users', userId, 'orders'), (snapshot) => {
         setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
 
-      // NEW: Fetch Expenses
       const expenseUnsub = onSnapshot(collection(db, 'artifacts', appId, 'users', userId, 'expenses'), (snapshot) => {
         setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
@@ -122,7 +116,6 @@ const App = () => {
     }
   }, [db, userId, isAuthReady, appId]);
 
-  // Modal handlers
   const openNewCustomerModal = () => { setEditingCustomer({ measurements: defaultMeasurements }); setIsCustomerModalOpen(true); };
   const openEditCustomerModal = (customer) => { setEditingCustomer(customer); setIsCustomerModalOpen(true); };
   const closeCustomerModal = () => { setIsCustomerModalOpen(false); setEditingCustomer(null); };
@@ -131,14 +124,44 @@ const App = () => {
   const openEditOrderModal = (order) => { setEditingOrder(order); setIsOrderModalOpen(true); };
   const closeOrderModal = () => { setIsOrderModalOpen(false); setEditingOrder(null); };
 
-  // NEW: Expense modal handlers
   const openNewExpenseModal = () => { setEditingExpense({}); setIsExpenseModalOpen(true); };
   const openEditExpenseModal = (expense) => { setEditingExpense(expense); setIsExpenseModalOpen(true); };
   const closeExpenseModal = () => { setIsExpenseModalOpen(false); setEditingExpense(null); };
 
-  // Delete handlers
-  const deleteCustomer = (id, name) => { /* ... existing code ... */ };
-  const deleteOrder = (id) => { /* ... existing code ... */ };
+  const deleteCustomer = (id, name) => {
+    showModal('Confirm Deletion', `Are you sure you want to delete ${name}? This will also delete all of their associated orders.`, async () => {
+      if (!db) return;
+      try {
+        const batch = writeBatch(db);
+        const notesCollectionRef = collection(db, 'artifacts', appId, 'users', userId, 'customers', id, 'notes');
+        const notesSnapshot = await getDocs(notesCollectionRef);
+        notesSnapshot.docs.forEach(d => batch.delete(d.ref));
+        const ordersQuery = query(collection(db, 'artifacts', appId, 'users', userId, 'orders'), where("customerId", "==", id));
+        const ordersSnapshot = await getDocs(ordersQuery);
+        ordersSnapshot.docs.forEach(d => batch.delete(d.ref));
+        const customerDocRef = doc(db, 'artifacts', appId, 'users', userId, 'customers', id);
+        batch.delete(customerDocRef);
+        await batch.commit();
+        closeModalAlert();
+      } catch (error) {
+        console.error("Error deleting customer and associated data:", error);
+        showModal('Error', 'Could not delete customer. Please try again.', closeModalAlert);
+      }
+    }, true);
+  };
+  
+  const deleteOrder = (id) => {
+    showModal('Confirm Deletion', 'Are you sure you want to delete this order?', async () => {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'orders', id));
+        closeModalAlert();
+      } catch (error) {
+        console.error("Error deleting order:", error);
+        showModal('Error', 'Could not delete order.', closeModalAlert);
+      }
+    }, true);
+  };
+
   const deleteExpense = (id) => {
     showModal('Confirm Deletion', 'Are you sure you want to delete this expense?', async () => {
       try {

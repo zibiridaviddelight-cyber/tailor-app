@@ -3,14 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { doc, addDoc, updateDoc, collection, serverTimestamp } from 'firebase/firestore';
 
+// CHANGED: Moved initialFormState outside the component to make it a stable reference
+const initialFormState = { date: '', description: '', amount: '' };
+
 const ExpenseModal = ({ isOpen, onClose, expense, db, userId, appId, showModal, closeModalAlert }) => {
-  const initialFormState = { date: '', description: '', amount: '' };
   const [form, setForm] = useState(initialFormState);
   const [isSaving, setIsSaving] = useState(false);
 
+  // CHANGED: Added initialFormState to the dependency array
   useEffect(() => {
     setForm(expense && expense.id ? expense : initialFormState);
-  }, [expense]);
+  }, [expense, initialFormState]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -58,3 +61,4 @@ const ExpenseModal = ({ isOpen, onClose, expense, db, userId, appId, showModal, 
 };
 
 export default ExpenseModal;
+

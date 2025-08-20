@@ -5,19 +5,21 @@ import { doc, addDoc, updateDoc, collection, serverTimestamp } from 'firebase/fi
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { v4 as uuidv4 } from 'uuid';
 
-const OrderModal = ({ isOpen, onClose, order, customers, db, storage, userId, appId, showModal, closeModalAlert }) => {
-  const initialFormState = {
-    customerId: '', customerName: '', item: '', status: 'In Progress', dueDate: '',
-    totalCost: '', amountPaid: '', balanceDue: '0.00', photos: []
-  };
+// CHANGED: Moved initialFormState outside the component to make it a stable reference
+const initialFormState = {
+  customerId: '', customerName: '', item: '', status: 'In Progress', dueDate: '',
+  totalCost: '', amountPaid: '', balanceDue: '0.00', photos: []
+};
 
+const OrderModal = ({ isOpen, onClose, order, customers, db, storage, userId, appId, showModal, closeModalAlert }) => {
   const [orderForm, setOrderForm] = useState(initialFormState);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
+  // CHANGED: Added initialFormState to the dependency array
   useEffect(() => {
     setOrderForm(order && order.id ? { ...initialFormState, ...order } : initialFormState);
-  }, [order]);
+  }, [order, initialFormState]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -52,14 +54,38 @@ const OrderModal = ({ isOpen, onClose, order, customers, db, storage, userId, ap
   const handleOrderSubmit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
+    
+    const customer = customers.find(c => c.id === orderForm.customerId);
+    const customerEmail = customer ? customer.email : null;
+
     const { id, ...orderData } = orderForm;
 
     try {
-      if (orderForm.id) {
-        await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'orders', orderForm.id), orderData);
+      let orderId = orderForm.id;
+      if (orderId) {
+        await updateDoc(doc(db, 'artifacts', appId, 'users', userId, 'orders', orderId), orderData);
       } else {
-        await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'orders'), { ...orderData, createdAt: serverTimestamp() });
+        const newOrder = await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'orders'), { ...orderData, createdAt: serverTimestamp() });
+        orderId = newOrder.id;
       }
+
+      if (customerEmail) {
+        const mailCollection = collection(db, 'mail');
+        if (!orderForm.id) {
+          await addDoc(mailCollection, {
+            to: customerEmail,
+            subject: 'Your Order has been Placed!',
+            html: `<h1>Order Confirmation</h1><p>Hi ${orderData.customerName},</p><p>This is a confirmation that your order for a <strong>${orderData.item}</strong> has been placed.</p><p>Thank you for your business!</p>`,
+          });
+        } else if (orderData.status === 'Ready for Pickup') {
+            await addDoc(mailCollection, {
+            to: customerEmail,
+            subject: 'Your Order is Ready for Pickup!',
+            html: `<h1>Your Order is Ready!</h1><p>Hi ${orderData.customerName},</p><p>Your <strong>${orderData.item}</strong> is ready for pickup.</p>`,
+          });
+        }
+      }
+
       showModal('Success', `Order ${orderForm.id ? 'updated' : 'added'} successfully!`, () => { closeModalAlert(); onClose(); });
     } catch (error) {
       console.error("Error saving order:", error);
@@ -99,7 +125,6 @@ const OrderModal = ({ isOpen, onClose, order, customers, db, storage, userId, ap
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500"><X size={24} /></button>
         <h2 className="text-2xl font-bold mb-6">{orderForm.id ? 'Edit Order' : 'Add New Order'}</h2>
         <form onSubmit={handleOrderSubmit}>
-          {/* Restored Form Fields */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block font-semibold mb-2" htmlFor="customerId">Customer</label>
@@ -172,4 +197,5 @@ const OrderModal = ({ isOpen, onClose, order, customers, db, storage, userId, ap
 };
 
 export default OrderModal;
+
 
